@@ -1,20 +1,46 @@
 Require Import
-  Utf8.
+  Utf8 String List
+  FMapWeakList FSetWeakList DecidableType
+  JMeq.
+
+(* Maps from strings to nats. *)
+Declare Module string_as_DecType : DecidableType
+  with Definition t := string
+  with Definition eq := @eq string
+  with Definition eq_dec := string_dec.
+
+Module StringMap := FMapWeakList.Make string_as_DecType.
+Module StringSet := FSetWeakList.Make string_as_DecType.
+
+Definition listSet : list string → StringSet.t := fold_right StringSet.add StringSet.empty.
+Definition keys {A} (m : StringMap.t A) : StringSet.t := listSet (map (@fst _ _) (StringMap.elements m)). 
+
+(* Set of variables. *)
+Definition vars := StringSet.t.
+Definition ø := StringSet.empty.
+Notation "x ∩ y" := (StringSet.inter x y) (at level 50, left associativity).
+Notation "x ∪ y" := (StringSet.union x y) (at level 40, left associativity).
+Notation "x ⊆ y" := (StringSet.Subset x y) (at level 30, no associativity).
+
+(* A variable binding is just a map from strings to nats. *)
+Definition binds := StringMap.t nat.
 
 (* Operators and expressions.  *)
 Inductive op : Set :=
   | add : op
   | mul : op.
 
-Inductive expr : Set :=
-  | num : nat → expr
-  | biop : op → expr → expr → expr.
+(* An expression is indexed by its free variables. *)
+Inductive expr : vars → Type :=
+  | num : nat → expr ø
+  | var : forall s : string, expr (StringSet.singleton s)
+  | biop : forall {s t : vars}, op → expr s → expr t → expr (s ∪ t).
 
 Notation "x .+ y" := (biop add x y) (at level 50, left associativity).
 Notation "x .* y" := (biop mul x y) (at level 40, left associativity).
 Notation "[ x ]" := (num x).
 
-Example sample_expr := [3] .* [4] .+ [5] .* [9].
+Example sample_expr := [3] .* [4] .+ [5] .* ([9] .+ var "a" ).
 
 (* Denotational semantics of ops and expressions. *)
 Definition d_op (o : op) : nat → nat → nat :=
@@ -23,11 +49,24 @@ Definition d_op (o : op) : nat → nat → nat :=
   | mul => mult
   end.
 
-Fixpoint denotation (e : expr) : nat :=
+Lemma keys_in : forall (s : StringSet.t) (m : StringMap.t nat) (v : string),
+  StringSet.In v s → StringMap.In v m.
+Proof.
+  intros. unfold StringMap.In; unfold StringMap.Raw.PX.In.
+
+Program Fixpoint denotation {s} (e : expr s) (bs : binds) (pf : s ⊆ keys bs) : nat :=
   match e with
   | num x => x
-  | biop o l r => d_op o (denotation l) (denotation r)
+  | var v =>
+      match StringMap.find v bs with
+      | None => _
+      | Some x => x
+      end
+  | biop p q o l r => d_op o (denotation l bs _) (denotation r bs _)
   end.
+Next Obligation.
+  pose proof (StringSet.singleton_2 (eq_refl v)) as vInS.
+  pose proof (pf v vInS) as vInKeys.
 
 Eval compute in (denotation sample_expr).
 
