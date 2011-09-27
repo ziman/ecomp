@@ -224,10 +224,10 @@ Lemma cappend_cnil : forall {s t} (p : code s t), cappend cnil p = p.
     simpl; rewrite IHp; reflexivity.
 Qed.
 
-Lemma cappend_fvars : forall {v s t u c c'},
-  v ∈ freeVars_code (@cappend s t u c c') → v ∈ (freeVars_code c ∪ freeVars_code c').
+Lemma cappend_fvars : forall {s t u c c'},
+  freeVars_code (@cappend s t u c c') ⊆ (freeVars_code c ∪ freeVars_code c').
 Proof.
-  intros v s t u c c'; induction c'.
+  intros s t u c c' v; induction c'.
     intros; simpl; simpl in H; assumption.
     intros; simpl; simpl in H; pose proof (IHc' c); clear IHc'.
     apply set_union_intro; apply set_union_elim in H; case H.
@@ -239,20 +239,20 @@ Proof.
 Qed.  
 
 (* The function [compile] does not create free variables. *)
-Lemma compile_fvars : forall e v s, v ∈ freeVars_code (@compile e s) → v ∈ freeVars_expr e.
+Lemma compile_fvars : forall {e s}, freeVars_code (@compile e s) ⊆ freeVars_expr e.
   intro e; induction e; try (intros; simpl in H; assumption).
-  intros. simpl; simpl in H.
-    pose proof (cappend_fvars H).
+  intros; simpl; simpl in H.
+    pose proof (cappend_fvars x H).
     destruct (set_union_elim string_dec _ _ _ H0).
-      apply set_union_intro1; exact (IHe1 v s H1).
-      apply set_union_intro2; exact (IHe2 v (S s) H1).
+      apply set_union_intro1; exact (IHe1 s x H1).
+      apply set_union_intro2; exact (IHe2 (S s) x H1).
 Qed.
 
 Lemma cappend_fvars_alt : forall {s t u : nat} {p : code s t} {q : code t u} {bs : binds},
   freeVars_code p ⊆ boundVars bs → freeVars_code q ⊆ boundVars bs
   → freeVars_code (cappend p q) ⊆ boundVars bs.
 Proof.
-  intros; pose proof (cappend_fvars H1); destruct (set_union_elim string_dec _ _ _ H2);
+  intros; pose proof (cappend_fvars x H1); destruct (set_union_elim string_dec _ _ _ H2);
     exact (H x H3) ||
     exact (H0 x H3).
 Qed.
@@ -267,10 +267,10 @@ Proof.
       reflexivity.
     intros; simpl.
       set (pf_r := union_subset_r (freeVars_code (cappend p q)) (freeVars_instr i)
-        (boundVars bs) (cappend_fvars_alt pf_p pf_q)).
+        (boundVars bs) (cappend_fvars_alt pf_p pf_q));
       set (pf_s := union_subset_l (freeVars_code (cappend p q)) (freeVars_instr i)
-        (boundVars bs) (cappend_fvars_alt pf_p pf_q)).
-      set (pf_t := union_subset_r (freeVars_code q) (freeVars_instr i) (boundVars bs) pf_q).
+        (boundVars bs) (cappend_fvars_alt pf_p pf_q));
+      set (pf_t := union_subset_r (freeVars_code q) (freeVars_instr i) (boundVars bs) pf_q);
       set (pf_u := union_subset_l (freeVars_code q) (freeVars_instr i) (boundVars bs) pf_q).
       pose proof (IHq p st bs pf_p pf_u).
       rewrite <- H.
@@ -279,7 +279,13 @@ Proof.
       reflexivity.
 Qed.
 
-Eval compute in run (compile sample_expr) (("x"%string,9)::nil) empty_stack.
+Lemma compiled_fv : forall {e bs s}, freeVars_expr e ⊆ boundVars bs
+  → freeVars_code (@compile e s) ⊆ boundVars bs.
+Proof.
+  intros; apply H; pose proof (compile_fvars x H0); assumption.
+Qed.
+
+Eval compute in run (compile sample_expr) sample_binds (compiled_fv sample_pf) empty_stack.
 
 (* A variation of the correctness theorem, operating on any stack. *)
 Lemma correctness_strong : forall (e : expr) {s} {st : stack nat s}, run (compile e) st = spush _ (denotation e) st. 
