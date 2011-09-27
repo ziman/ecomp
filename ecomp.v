@@ -116,10 +116,6 @@ Next Obligation.
   apply pf; apply (expr_subvars_r o l r x H).
 Qed.
 
-(* Makes coqtop hang at this point:
-Eval compute in (denotation sample_expr).
-*)
-
 (* Instruction of a stack machine of type [instr s t] transforms
     a stack of size [s] into a stack of size [t]. *)
 Inductive instr : nat → nat → Set :=
@@ -190,7 +186,6 @@ Defined.
 Print exec.    
 
 (* Operational semantics of a code sequence. *)
-
 Lemma union_subset_l : forall M N O, (M ∪ N) ⊆ O → M ⊆ O.
   intros; apply (H x); apply (set_union_intro1); assumption.
 Qed.
@@ -248,17 +243,6 @@ Lemma compile_fvars : forall {e s}, freeVars_code (@compile e s) ⊆ freeVars_ex
       apply set_union_intro2; exact (IHe2 (S s) x H1).
 Qed.
 
-(*
-Lemma cappend_fvars_alt : forall {s t u : nat} {p : code s t} {q : code t u} {bs : binds},
-  freeVars_code p ⊆ boundVars bs → freeVars_code q ⊆ boundVars bs
-  → freeVars_code (cappend p q) ⊆ boundVars bs.
-Proof.
-  intros; pose proof (cappend_fvars x H1); destruct (set_union_elim string_dec _ _ _ H2);
-    exact (H x H3) ||
-    exact (H0 x H3).
-Qed.
-*)
-
 Lemma run_cappend : forall {s t u} (p : code s t) (q : code t u) (st : stack nat s)
   (bs : binds) (pf_o : freeVars_code (cappend p q) ⊆ boundVars bs)
   (pf_p : freeVars_code p ⊆ boundVars bs) (pf_q : freeVars_code q ⊆ boundVars bs)
@@ -285,8 +269,6 @@ Proof.
   intros; apply H; pose proof (compile_fvars x H0); assumption.
 Qed.
 
-Eval compute in run (compile sample_expr) sample_binds (compiled_fv sample_pf) empty_stack.
-
 (* A variation of the correctness theorem, operating on any stack. *)
 Lemma correctness_strong
   : forall {e : expr} {s : nat} {st : stack nat s} {bs : binds}
@@ -310,6 +292,9 @@ Proof.
 Qed.
 
 (* The main theorem proving the correctness of the compiler and interpreter. *)
+(* An instance of [pf_c] may be obtained as [compiled_fv pf_e]
+    but for convenience, this theorem accepts any proof of that hypothesis.
+*)
 Theorem correctness : forall (e : expr) (bs : binds)
   (pf_e : freeVars_expr e ⊆ boundVars bs)
   (pf_c : freeVars_code (compile e) ⊆ boundVars bs),
@@ -317,6 +302,9 @@ Theorem correctness : forall (e : expr) (bs : binds)
 Proof.
   intros; apply (correctness_strong pf_e pf_c).
 Qed.
+
+(* Example. *)
+Eval compute in run (compile sample_expr) sample_binds (compiled_fv sample_pf) empty_stack.
 
 
 
