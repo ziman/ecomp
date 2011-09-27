@@ -25,6 +25,8 @@ Notation "x ∈ S" := (set_In x S) (at level 30, no associativity).
 Notation "M ⊆ N" := (forall x, x ∈ M → x ∈ N) (at level 30, no associativity).
 Notation "f ∘ g" := (fun x => f (g x)) (at level 55, left associativity).
 
+Example sample_binds := ("x"%string, 9) :: ("y"%string, 4) :: nil.
+
 Definition boundVars : binds → list string := map (@fst _ _).
 
 Fixpoint lookup (v : string) (bs : binds) : option nat :=
@@ -79,6 +81,12 @@ Qed.
 
 Lemma expr_subvars_r : forall o l r, freeVars_expr r ⊆ freeVars_expr (biop o l r).
   intros; simpl; apply set_union_intro2; assumption.
+Qed.
+
+(* Sample expression versus sample binds. *)
+
+Example sample_pf : freeVars_expr sample_expr ⊆ boundVars sample_binds.
+  simpl; intros; destruct H; left. assumption. destruct H.
 Qed.
 
 (* Denotational semantics of ops and expressions. *)
@@ -208,8 +216,6 @@ Defined.
 Definition empty_stack {A} := snil A.
 Definition singleton {A : Set} (x : A) := spush A x empty_stack.
 
-Eval compute in run (compile sample_expr) empty_stack.
-
 (* === Proofs === *)
 
 Lemma cappend_cnil : forall {s t} (p : code s t), cappend cnil p = p.
@@ -218,6 +224,29 @@ Lemma cappend_cnil : forall {s t} (p : code s t), cappend cnil p = p.
     simpl; rewrite IHp; reflexivity.
 Qed.
 
+Lemma cappend_fvars : forall {v s t u c c'},
+  v ∈ freeVars_code (@cappend s t u c c') → v ∈ (freeVars_code c ∪ freeVars_code c').
+Proof.
+  intros v s t u c c'; induction c'.
+    intros; simpl; simpl in H; assumption.
+    intros; simpl; simpl in H; pose proof (IHc' c); clear IHc'.
+    apply set_union_intro; apply set_union_elim in H; case H.
+      intros; pose proof (H0 H1); apply set_union_elim in H2.
+        destruct H2.
+          left; assumption.
+          right; apply set_union_intro1; assumption.
+      intros; right; apply set_union_intro2; assumption.
+Qed.  
+
+(* The function [compile] does not create free variables. *)
+Lemma compile_fvars : forall e v s, v ∈ freeVars_code (@compile e s) → v ∈ freeVars_expr e.
+  intros; induction e; try (intros; simpl in H; assumption).
+  intros. simpl; simpl in H.
+    pose proof (cappend_fvars H).
+    destruct (set_union_elim string_dec _ _  _ H0).
+      apply set_union_intro1; exact (IHe1 H1).
+      apply set_union_intro2. apply IHe2. exact H1.
+
 Lemma run_cappend : forall {s t u} (p : code s t) (q : code t u) (st : stack nat s),
   run (cappend p q) st = run q (run p st).
 Proof.
@@ -225,6 +254,8 @@ Proof.
     reflexivity ||
     simpl; rewrite (IHq p st); reflexivity.
 Qed.
+
+Eval compute in run (compile sample_expr) (("x"%string,9)::nil) empty_stack.
 
 (* A variation of the correctness theorem, operating on any stack. *)
 Lemma correctness_strong : forall (e : expr) {s} {st : stack nat s}, run (compile e) st = spush _ (denotation e) st. 
