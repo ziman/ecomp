@@ -248,6 +248,7 @@ Lemma compile_fvars : forall {e s}, freeVars_code (@compile e s) ⊆ freeVars_ex
       apply set_union_intro2; exact (IHe2 (S s) x H1).
 Qed.
 
+(*
 Lemma cappend_fvars_alt : forall {s t u : nat} {p : code s t} {q : code t u} {bs : binds},
   freeVars_code p ⊆ boundVars bs → freeVars_code q ⊆ boundVars bs
   → freeVars_code (cappend p q) ⊆ boundVars bs.
@@ -256,25 +257,24 @@ Proof.
     exact (H x H3) ||
     exact (H0 x H3).
 Qed.
+*)
 
 Lemma run_cappend : forall {s t u} (p : code s t) (q : code t u) (st : stack nat s)
-  (bs : binds) (pf_p : freeVars_code p ⊆ boundVars bs) (pf_q : freeVars_code q ⊆ boundVars bs)
-  , run (cappend p q) bs (cappend_fvars_alt pf_p pf_q) st = run q bs pf_q (run p bs pf_p st).
+  (bs : binds) (pf_o : freeVars_code (cappend p q) ⊆ boundVars bs)
+  (pf_p : freeVars_code p ⊆ boundVars bs) (pf_q : freeVars_code q ⊆ boundVars bs)
+  , run (cappend p q) bs pf_o st = run q bs pf_q (run p bs pf_p st).
 Proof.
   intros s t u p q; revert p; induction q.
     intros; simpl;
-      rewrite (proof_irrelevance (freeVars_code p ⊆ boundVars bs) (cappend_fvars_alt pf_p pf_q) pf_p);
+      rewrite (proof_irrelevance (freeVars_code p ⊆ boundVars bs) pf_o pf_p);
       reflexivity.
     intros; simpl.
-      set (pf_r := union_subset_r (freeVars_code (cappend p q)) (freeVars_instr i)
-        (boundVars bs) (cappend_fvars_alt pf_p pf_q));
-      set (pf_s := union_subset_l (freeVars_code (cappend p q)) (freeVars_instr i)
-        (boundVars bs) (cappend_fvars_alt pf_p pf_q));
+      set (pf_r := union_subset_r (freeVars_code (cappend p q)) (freeVars_instr i) (boundVars bs) pf_o);
+      set (pf_s := union_subset_l (freeVars_code (cappend p q)) (freeVars_instr i) (boundVars bs) pf_o);
       set (pf_t := union_subset_r (freeVars_code q) (freeVars_instr i) (boundVars bs) pf_q);
       set (pf_u := union_subset_l (freeVars_code q) (freeVars_instr i) (boundVars bs) pf_q).
-      pose proof (IHq p st bs pf_p pf_u).
+      pose proof (IHq p st bs pf_s pf_p).
       rewrite <- H.
-      rewrite (proof_irrelevance (freeVars_code (cappend p q) ⊆ boundVars bs) (cappend_fvars_alt pf_p pf_u) pf_s).
       rewrite (proof_irrelevance (freeVars_instr i ⊆ boundVars bs) pf_r pf_t).
       reflexivity.
 Qed.
@@ -288,13 +288,24 @@ Qed.
 Eval compute in run (compile sample_expr) sample_binds (compiled_fv sample_pf) empty_stack.
 
 (* A variation of the correctness theorem, operating on any stack. *)
-Lemma correctness_strong : forall (e : expr) {s} {st : stack nat s}, run (compile e) st = spush _ (denotation e) st. 
+Lemma correctness_strong
+  : forall {e : expr} {s : nat} {st : stack nat s} {bs : binds}
+  (pf_e : freeVars_expr e ⊆ boundVars bs) (pf_c : freeVars_code (compile e) ⊆ boundVars bs),
+  run (compile e) bs pf_c st = spush _ (denotation e bs pf_e) st.
 Proof.
   induction e; try reflexivity.
-  intros; simpl;
-    rewrite (run_cappend (compile e1) (compile e2));
-    rewrite (IHe1 _ st);
-    rewrite (IHe2 _ (spush nat (denotation e1) st));
+    simpl; intros; rewrite (
+      proof_irrelevance _
+        (elim_In s bs (union_subset_r nil (s :: nil) (boundVars bs) pf_c))
+        (denotation_obligation_1 (var s) bs pf_e s eq_refl)
+      ); reflexivity.
+  intros; simpl.
+    set (P1 := union_subset_l (freeVars_code (cappend (compile e1) (compile e2))) nil (boundVars bs) pf_c).
+    set (P2 := denotation_obligation_2 (biop o e1 e2) bs pf_e o e1 e2 eq_refl).
+    set (P3 := denotation_obligation_3 (biop o e1 e2) bs pf_e o e1 e2 eq_refl).
+    rewrite (run_cappend (compile e1) (compile e2) st bs P1 (compiled_fv P2) (compiled_fv P3)).
+    rewrite (IHe1 s st bs P2 (compiled_fv P2)).
+    rewrite (IHe2 (S s) (spush nat (denotation e1 bs P2) st) bs P3 (compiled_fv P3)).
   unfold exec_op; reflexivity.
 Qed.
 
