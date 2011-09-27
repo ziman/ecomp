@@ -1,5 +1,5 @@
 Require Import
-  Utf8 List String ListSet.
+  Utf8 List String ListSet ProofIrrelevance.
 
 (* Operators and expressions.  *)
 Inductive op : Set :=
@@ -240,19 +240,43 @@ Qed.
 
 (* The function [compile] does not create free variables. *)
 Lemma compile_fvars : forall e v s, v ∈ freeVars_code (@compile e s) → v ∈ freeVars_expr e.
-  intros; induction e; try (intros; simpl in H; assumption).
+  intro e; induction e; try (intros; simpl in H; assumption).
   intros. simpl; simpl in H.
     pose proof (cappend_fvars H).
-    destruct (set_union_elim string_dec _ _  _ H0).
-      apply set_union_intro1; exact (IHe1 H1).
-      apply set_union_intro2. apply IHe2. exact H1.
+    destruct (set_union_elim string_dec _ _ _ H0).
+      apply set_union_intro1; exact (IHe1 v s H1).
+      apply set_union_intro2; exact (IHe2 v (S s) H1).
+Qed.
 
-Lemma run_cappend : forall {s t u} (p : code s t) (q : code t u) (st : stack nat s),
-  run (cappend p q) st = run q (run p st).
+Lemma cappend_fvars_alt : forall {s t u : nat} {p : code s t} {q : code t u} {bs : binds},
+  freeVars_code p ⊆ boundVars bs → freeVars_code q ⊆ boundVars bs
+  → freeVars_code (cappend p q) ⊆ boundVars bs.
 Proof.
-  intros s t u p q; revert p; induction q; intros;
-    reflexivity ||
-    simpl; rewrite (IHq p st); reflexivity.
+  intros; pose proof (cappend_fvars H1); destruct (set_union_elim string_dec _ _ _ H2);
+    exact (H x H3) ||
+    exact (H0 x H3).
+Qed.
+
+Lemma run_cappend : forall {s t u} (p : code s t) (q : code t u) (st : stack nat s)
+  (bs : binds) (pf_p : freeVars_code p ⊆ boundVars bs) (pf_q : freeVars_code q ⊆ boundVars bs)
+  , run (cappend p q) bs (cappend_fvars_alt pf_p pf_q) st = run q bs pf_q (run p bs pf_p st).
+Proof.
+  intros s t u p q; revert p; induction q.
+    intros; simpl;
+      rewrite (proof_irrelevance (freeVars_code p ⊆ boundVars bs) (cappend_fvars_alt pf_p pf_q) pf_p);
+      reflexivity.
+    intros; simpl.
+      set (pf_r := union_subset_r (freeVars_code (cappend p q)) (freeVars_instr i)
+        (boundVars bs) (cappend_fvars_alt pf_p pf_q)).
+      set (pf_s := union_subset_l (freeVars_code (cappend p q)) (freeVars_instr i)
+        (boundVars bs) (cappend_fvars_alt pf_p pf_q)).
+      set (pf_t := union_subset_r (freeVars_code q) (freeVars_instr i) (boundVars bs) pf_q).
+      set (pf_u := union_subset_l (freeVars_code q) (freeVars_instr i) (boundVars bs) pf_q).
+      pose proof (IHq p st bs pf_p pf_u).
+      rewrite <- H.
+      rewrite (proof_irrelevance (freeVars_code (cappend p q) ⊆ boundVars bs) (cappend_fvars_alt pf_p pf_u) pf_s).
+      rewrite (proof_irrelevance (freeVars_instr i ⊆ boundVars bs) pf_r pf_t).
+      reflexivity.
 Qed.
 
 Eval compute in run (compile sample_expr) (("x"%string,9)::nil) empty_stack.
