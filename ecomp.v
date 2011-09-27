@@ -25,16 +25,7 @@ Notation "x ∈ S" := (set_In x S) (at level 30, no associativity).
 Notation "M ⊆ N" := (forall x, x ∈ M → x ∈ N) (at level 30, no associativity).
 Notation "f ∘ g" := (fun x => f (g x)) (at level 55, left associativity).
 
-Fixpoint freeVars (e : expr) : list string :=
-  match e with
-  | num _ => nil
-  | var v => v :: nil
-  | biop _ l r => freeVars l ∪ freeVars r
-  end.
-
 Definition boundVars : binds → list string := map (@fst _ _).
-
-Definition covered (bs : binds) (e : expr) := freeVars e ⊆ boundVars bs.
 
 Fixpoint lookup (v : string) (bs : binds) : option nat :=
   match bs with
@@ -73,11 +64,20 @@ Next Obligation.
   destruct (lookup_pos_neg v bs pf (eq_sym Heq_anonymous)).
 Defined.
 
-Lemma expr_subvars_l : forall o l r, freeVars l ⊆ freeVars (biop o l r).
+(* Free variables of expressions. *)
+
+Fixpoint freeVars_expr (e : expr) : list string :=
+  match e with
+  | num _ => nil
+  | var v => v :: nil
+  | biop _ l r => freeVars_expr l ∪ freeVars_expr r
+  end.
+
+Lemma expr_subvars_l : forall o l r, freeVars_expr l ⊆ freeVars_expr (biop o l r).
   intros; simpl; apply set_union_intro1; assumption.
 Qed.
 
-Lemma expr_subvars_r : forall o l r, freeVars r ⊆ freeVars (biop o l r).
+Lemma expr_subvars_r : forall o l r, freeVars_expr r ⊆ freeVars_expr (biop o l r).
   intros; simpl; apply set_union_intro2; assumption.
 Qed.
 
@@ -88,14 +88,18 @@ Definition d_op (o : op) : nat → nat → nat :=
   | mul => mult
   end.
 
-Program Fixpoint denotation (e : expr) (bs : binds) (pf : freeVars e ⊆ boundVars bs) {struct e} : nat :=
+Lemma elim_In : forall v bs, (forall x : string, v = x ∨ False → x ∈ boundVars bs) → v ∈ boundVars bs.
+  intros; exact (H v (or_introl _ (eq_refl v))).
+Qed.
+
+Program Fixpoint denotation (e : expr) (bs : binds) (pf : freeVars_expr e ⊆ boundVars bs) {struct e} : nat :=
   match e with
   | num x => x 
   | var v => slookup v bs _
   | biop o l r => d_op o (denotation l bs _) (denotation r bs _)
   end.
 Next Obligation.
-  simpl in pf; exact (pf v (or_introl _ (eq_refl v))).
+  simpl in pf; apply elim_In; assumption.
 Qed.
 Next Obligation.
   apply pf; apply (expr_subvars_l o l r x H).
@@ -115,10 +119,23 @@ Inductive instr : nat → nat → Set :=
   | iread : forall {s}, string → instr s (S s)
   | ibiop : forall {s}, op → instr (S (S s)) (S s).
 
+Definition freeVars_instr {s t} (i : instr s t) : list string :=
+  match i with
+  | ipush _ _ => nil
+  | iread _ v => v :: nil
+  | ibiop _ _ => nil
+  end.
+
 (* Code is a snoc-sequence of instructions, indexed by its action on stack. *)
 Inductive code : nat → nat → Set :=
   | cnil : forall {s}, code s s
   | csnoc : forall {s t u}, code s t → instr t u → code s u.
+
+Fixpoint freeVars_code {s t} (c : code s t) : list string :=
+  match c with
+  | cnil _ => nil
+  | csnoc _ _ _ c i => set_union string_dec (freeVars_code c) (freeVars_instr i)
+  end.
 
 (* Concatenation of codes. *)
 Fixpoint cappend {s t u : nat} (p : code s t) (q : code t u) : code s u.
@@ -154,21 +171,38 @@ Definition exec_op (o : op) {s} (st : stack nat (S (S s))) : stack nat (S s) :=
   spush _ (d_op o x y) st''.
  
 (* Operational semantics of an instruction. *)
-Definition exec {s t} (i : instr s t) (bs : binds) : stack nat s → stack nat t.
+Definition exec {s t} (i : instr s t) (bs : binds) (pf : freeVars_instr i ⊆ boundVars bs)
+  : stack nat s → stack nat t.
+Proof.
   destruct i.
     exact (spush _ n).
-    exact (spush _ s0).
+    rename s0 into v; simpl in pf; exact (spush _ (slookup v bs (elim_In v bs pf))).
     exact (exec_op o).
 Defined.
 Print exec.    
 
 (* Operational semantics of a code sequence. *)
-Fixpoint run {s t} (c : code s t) (st : stack nat s) : stack nat t.
-  destruct c;
-    assumption ||
-    exact (exec i (run _ _ c st)).
+
+Lemma union_subset_l : forall M N O, (M ∪ N) ⊆ O → M ⊆ O.
+  intros; apply (H x); apply (set_union_intro1); assumption.
+Qed.
+
+Lemma union_subset_r : forall M N O, (M ∪ N) ⊆ O → N ⊆ O.
+  intros; apply (H x); apply (set_union_intro2); assumption.
+Qed.
+
+Fixpoint run {s t} (c : code s t) (bs : binds) (pf : freeVars_code c ⊆ boundVars bs) {struct c}
+  : stack nat s → stack nat t.
+Proof.
+  intro st.
+  destruct c.
+    assumption.
+    apply (exec i bs).
+      simpl in pf; apply (union_subset_r (freeVars_code c) (freeVars_instr i) (boundVars bs)); assumption.
+    apply (run _ _ c bs).
+      simpl in pf; apply (union_subset_l (freeVars_code c) (freeVars_instr i) (boundVars bs)); assumption.
+    assumption.
 Defined.
-Print run.
 
 (* Some utilities. *)
 Definition empty_stack {A} := snil A.
