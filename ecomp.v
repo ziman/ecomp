@@ -310,9 +310,12 @@ Proof.
 Qed.
 
 (* The main theorem proving the correctness of the compiler and interpreter. *)
-Theorem correctness : forall e : expr, run (compile e) empty_stack = singleton (denotation e).
+Theorem correctness : forall (e : expr) (bs : binds)
+  (pf_e : freeVars_expr e ⊆ boundVars bs)
+  (pf_c : freeVars_code (compile e) ⊆ boundVars bs),
+  run (compile e) bs pf_c empty_stack = singleton (denotation e bs pf_e).
 Proof.
-  intro e; apply (correctness_strong e).
+  intros; apply (correctness_strong pf_e pf_c).
 Qed.
 
 
