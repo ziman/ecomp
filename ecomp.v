@@ -304,7 +304,7 @@ Proof.
   reflexivity.
 Qed.
 
-(* The main theorem proving the correctness of the compiler and interpreter. *)
+(* The main theorem, proving the correctness of the compiler and interpreter. *)
 (* An instance of [pf_c] may be obtained as [compiled_fv pf_e]
     but for convenience, this theorem accepts any proof of that hypothesis.
 *)
