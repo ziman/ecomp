@@ -150,14 +150,6 @@ Definition cappend {s t u : nat} (p : code s t) (q : code t u) : code s u :=
     end
   in cappend' _ _ _ q p.
 
-(* Maybe more readable:
-Fixpoint cappend {s t u : nat} (p : code s t) (q : code t u) : code s u.
-  destruct q;
-    assumption ||
-    exact (csnoc (cappend s s0 t p q) i).
-Defined.
-*)
-
 (* Compilation of an expression into code. *)
 Fixpoint compile (e : expr) {s : nat} : code s (S s) :=
   match e with
