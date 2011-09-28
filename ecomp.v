@@ -200,7 +200,7 @@ Proof.
     match c as c' in code m n
       return freeVars_code c' ⊆ boundVars bs → stack nat m → stack nat n
     with
-    | cnil _ => λ _ st, st
+    | cnil _ => λ _, id
     | csnoc _ _ _ c i => λ pf, exec i bs _  ∘ run _ _ c bs _
     end
   ).
