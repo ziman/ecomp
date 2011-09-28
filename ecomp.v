@@ -193,14 +193,6 @@ Proof.
 Defined.
 
 (* Operational semantics of a code sequence. *)
-Lemma union_subset_l : forall M N O, (M ∪ N) ⊆ O → M ⊆ O.
-  intros; apply (H x); apply (set_union_intro1); assumption.
-Qed.
-
-Lemma union_subset_r : forall M N O, (M ∪ N) ⊆ O → N ⊆ O.
-  intros; apply (H x); apply (set_union_intro2); assumption.
-Qed.
-
 Fixpoint run {s t} (c : code s t) (bs : binds)
   : freeVars_code c ⊆ boundVars bs → stack nat s → stack nat t.
 Proof.
