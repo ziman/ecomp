@@ -23,7 +23,7 @@ Definition binds := list (string * nat).
 Notation "x ∪ y" := (set_union string_dec x y) (at level 50, left associativity).
 Notation "x ∈ S" := (set_In x S) (at level 30, no associativity).
 Notation "M ⊆ N" := (forall x, x ∈ M → x ∈ N) (at level 30, no associativity).
-Notation "f ∘ g" := (fun x => f (g x)) (at level 55, left associativity).
+Notation "f ∘ g" := (λ x, f (g x)) (at level 55, left associativity).
 
 Example sample_binds := ("x"%string, 9) :: ("y"%string, 4) :: nil.
 
@@ -142,11 +142,21 @@ Fixpoint freeVars_code {s t} (c : code s t) : list string :=
   end.
 
 (* Concatenation of codes. *)
+Definition cappend {s t u : nat} (p : code s t) (q : code t u) : code s u :=
+  let cappend' := fix cappend' {s t u : nat} (q : code t u) : code s t → code s u :=
+    match q in code m n return code s m → code s n with
+    | cnil _ => fun p => p
+    | csnoc _ _ _ c i => λ p, csnoc (cappend' _ _ _ c p) i
+    end
+  in cappend' _ _ _ q p.
+
+(* Maybe more readable:
 Fixpoint cappend {s t u : nat} (p : code s t) (q : code t u) : code s u.
   destruct q;
     assumption ||
     exact (csnoc (cappend s s0 t p q) i).
 Defined.
+*)
 
 (* Compilation of an expression into code. *)
 Fixpoint compile (e : expr) {s : nat} : code s (S s) :=
@@ -175,15 +185,20 @@ Definition exec_op (o : op) {s} (st : stack nat (S (S s))) : stack nat (S s) :=
   spush _ (d_op o x y) st''.
  
 (* Operational semantics of an instruction. *)
-Definition exec {s t} (i : instr s t) (bs : binds) (pf : freeVars_instr i ⊆ boundVars bs)
-  : stack nat s → stack nat t.
+Definition exec {s t} (i : instr s t) (bs : binds)
+  : freeVars_instr i ⊆ boundVars bs → stack nat s → stack nat t.
 Proof.
-  destruct i.
-    exact (spush _ n).
-    rename s0 into v; simpl in pf; exact (spush _ (slookup v bs (elim_In v bs pf))).
-    exact (exec_op o).
+  refine ( (* Program is able to solve the obligation automatically! *)
+    match i as i' in instr m n
+      return freeVars_instr i' ⊆ boundVars bs → stack nat m → stack nat n
+    with
+    | ipush _ x => λ _, spush _ x
+    | iread _ v => λ pf, spush _ (slookup v bs _)
+    | ibiop _ o => λ _, exec_op o
+    end
+  ).
+  exact (pf v (or_introl False (eq_refl v))).
 Defined.
-Print exec.    
 
 (* Operational semantics of a code sequence. *)
 Lemma union_subset_l : forall M N O, (M ∪ N) ⊆ O → M ⊆ O.
@@ -194,17 +209,19 @@ Lemma union_subset_r : forall M N O, (M ∪ N) ⊆ O → N ⊆ O.
   intros; apply (H x); apply (set_union_intro2); assumption.
 Qed.
 
-Fixpoint run {s t} (c : code s t) (bs : binds) (pf : freeVars_code c ⊆ boundVars bs) {struct c}
-  : stack nat s → stack nat t.
+Fixpoint run {s t} (c : code s t) (bs : binds)
+  : freeVars_code c ⊆ boundVars bs → stack nat s → stack nat t.
 Proof.
-  intro st.
-  destruct c.
-    assumption.
-    apply (exec i bs).
-      simpl in pf; apply (union_subset_r (freeVars_code c) (freeVars_instr i) (boundVars bs)); assumption.
-    apply (run _ _ c bs).
-      simpl in pf; apply (union_subset_l (freeVars_code c) (freeVars_instr i) (boundVars bs)); assumption.
-    assumption.
+  refine (
+    match c as c' in code m n
+      return freeVars_code c' ⊆ boundVars bs → stack nat m → stack nat n
+    with
+    | cnil _ => λ _ st, st
+    | csnoc _ _ _ c i => λ pf, exec i bs _  ∘ run _ _ c bs _
+    end
+  ).
+  intros v H; exact (pf v (set_union_intro2 string_dec v (freeVars_code c0) (freeVars_instr i) H)).
+  intros v H; exact (pf v (set_union_intro1 string_dec v (freeVars_code c0) (freeVars_instr i) H)).
 Defined.
 
 (* Some utilities. *)
@@ -253,12 +270,15 @@ Proof.
       rewrite (proof_irrelevance (freeVars_code p ⊆ boundVars bs) pf_o pf_p);
       reflexivity.
     intros; simpl.
-      set (pf_r := union_subset_r (freeVars_code (cappend p q)) (freeVars_instr i) (boundVars bs) pf_o);
-      set (pf_s := union_subset_l (freeVars_code (cappend p q)) (freeVars_instr i) (boundVars bs) pf_o);
-      set (pf_t := union_subset_r (freeVars_code q) (freeVars_instr i) (boundVars bs) pf_q);
-      set (pf_u := union_subset_l (freeVars_code q) (freeVars_instr i) (boundVars bs) pf_q).
-      pose proof (IHq p st bs pf_s pf_p).
-      rewrite <- H.
+      set (pf_r := λ (v : string) (H : v ∈ freeVars_instr i), pf_o v
+        (set_union_intro2 string_dec v (freeVars_code (cappend p q)) (freeVars_instr i) H));
+      set (pf_s := λ (v : string) (H : v ∈ freeVars_code (cappend p q)), pf_o v
+        (set_union_intro1 string_dec v (freeVars_code (cappend p q)) (freeVars_instr i) H));
+      set (pf_t := λ (v : string) (H : v ∈ freeVars_instr i), pf_q v
+        (set_union_intro2 string_dec v (freeVars_code q) (freeVars_instr i) H));
+      set (pf_u := λ (v : string) (H : v ∈ freeVars_code q), pf_q v
+        (set_union_intro1 string_dec v (freeVars_code q) (freeVars_instr i) H)).
+      rewrite <- (IHq p st bs pf_s pf_p).
       rewrite (proof_irrelevance (freeVars_instr i ⊆ boundVars bs) pf_r pf_t).
       reflexivity.
 Qed.
@@ -276,19 +296,20 @@ Lemma correctness_strong
   run (compile e) bs pf_c st = spush _ (denotation e bs pf_e) st.
 Proof.
   induction e; try reflexivity.
-    simpl; intros; rewrite (
+    simpl; intros. rewrite (
       proof_irrelevance _
-        (elim_In s bs (union_subset_r nil (s :: nil) (boundVars bs) pf_c))
+        (pf_c s (set_union_intro2 string_dec s nil (s :: nil) (or_introl False eq_refl)))
         (denotation_obligation_1 (var s) bs pf_e s eq_refl)
       ); reflexivity.
   intros; simpl.
-    set (P1 := union_subset_l (freeVars_code (cappend (compile e1) (compile e2))) nil (boundVars bs) pf_c).
+    set (P1 := λ (v : string) (H : v ∈ freeVars_code (cappend (compile e1) (compile e2))),
+      pf_c v (set_union_intro1 string_dec v (freeVars_code (cappend (compile e1) (compile e2))) nil H)).
     set (P2 := denotation_obligation_2 (biop o e1 e2) bs pf_e o e1 e2 eq_refl).
     set (P3 := denotation_obligation_3 (biop o e1 e2) bs pf_e o e1 e2 eq_refl).
     rewrite (run_cappend (compile e1) (compile e2) st bs P1 (compiled_fv P2) (compiled_fv P3)).
     rewrite (IHe1 s st bs P2 (compiled_fv P2)).
     rewrite (IHe2 (S s) (spush nat (denotation e1 bs P2) st) bs P3 (compiled_fv P3)).
-  unfold exec_op; reflexivity.
+  reflexivity.
 Qed.
 
 (* The main theorem proving the correctness of the compiler and interpreter. *)
