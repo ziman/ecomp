@@ -177,11 +177,27 @@ Qed.
 
 (** * Operational semantics
 
-In this section, we introduce a stack machine along with instructions it provides
+** Compilation
+
+In this subsection, we introduce a stack machine along with instructions it provides
 and we define what code expressions compile to. *)
 
+(** We start by describing our virtual machine. The machine contains a stack,
+which we model as size-indexed. A number of items is sufficient to characterize
+the stack since we only ever push [nat]s on it. *)
+Inductive stack (A : Set) : nat → Set :=
+  | snil : stack A O
+  | spush : forall {n}, A → stack A n → stack A (S n).
+
+Definition pop {A} {s} (st : stack A (S s)) :=
+  match st with
+  | spush _ x xs => (x,xs)
+  end.
+
 (** An instruction of a stack machine of type [instr s t] transforms
-    a stack of size [s] into a stack of size [t]. *)
+a stack of size [s] into a stack of size [t].  Furthermore, instructions can also
+have "free variables" — we need to keep track of what variables from the context
+an instruction is about to access. *)
 Inductive instr : nat → nat → Set :=
   | ipush : forall {s}, nat → instr s (S s)
   | iread : forall {s}, string → instr s (S s)
@@ -194,10 +210,16 @@ Definition freeVars_instr {s t} (i : instr s t) : list string :=
   | ibiop _ _ => nil
   end.
 
-(* Code is a snoc-sequence of instructions, indexed by its action on stack. *)
+(** Code is a snoc-sequence of instructions, indexed by its action on stack. Again,
+we define _free variables_ of a code as the set of names that could possibly be
+accessed/referenced by it. 
+
+We also define concatenation of code sequences. *)
 Inductive code : nat → nat → Set :=
   | cnil : forall {s}, code s s
   | csnoc : forall {s t u}, code s t → instr t u → code s u.
+
+Notation "a ; b" := (csnoc a  b) (at level 29, left associativity).
 
 Fixpoint freeVars_code {s t} (c : code s t) : list string :=
   match c with
@@ -205,34 +227,31 @@ Fixpoint freeVars_code {s t} (c : code s t) : list string :=
   | csnoc _ _ _ c i => set_union string_dec (freeVars_code c) (freeVars_instr i)
   end.
 
-(* Concatenation of codes. *)
+(* Concatenation of code sequences. *)
 Definition cappend {s t u : nat} (p : code s t) (q : code t u) : code s u :=
   let cappend' := fix cappend' {s t u : nat} (q : code t u) : code s t → code s u :=
     match q in code m n return code s m → code s n with
     | cnil _ => fun p => p
-    | csnoc _ _ _ c i => fun  p => csnoc (cappend' _ _ _ c p) i
+    | csnoc _ _ _ c i => fun  p => cappend' _ _ _ c p ; i
     end
   in cappend' _ _ _ q p.
 
-(* Compilation of an expression into code. *)
-Fixpoint compile (e : expr) {s : nat} : code s (S s) :=
+Notation "a ++ b" := (cappend a b).
+
+(** Now we have everything ready for defining the compilation function,
+which is completely straightforward. 
+
+The function [compile] returns [∀ s. code s (S s)] so that
+the code is not specialized for a specific stack size. *)
+Fixpoint compile (e : expr) : forall s, code s (S s) :=
   match e with
-  | num x => csnoc cnil (ipush x)
-  | var v => csnoc cnil (iread v)
-  | biop o l r => csnoc (cappend (compile l) (compile r)) (ibiop o)
+  | num x => fun _ => cnil ; ipush x
+  | var v => fun _ => cnil ; iread v
+  | biop o l r => fun _ => compile l _ ++ compile r _ ; ibiop o
   end.
 
+(* We try compiling the expression for the empty stack. *)
 Eval compute in @compile sample_expr 0.
-
-(* A size-indexed stack. *)
-Inductive stack (A : Set) : nat → Set :=
-  | snil : stack A O
-  | spush : forall {n}, A → stack A n → stack A (S n).
-
-Definition pop {A} {s} (st : stack A (S s)) :=
-  match st with
-  | spush _ x xs => (x,xs)
-  end.
 
 (* Operational semantics of a binary operator. *)
 Definition exec_op (o : op) {s} (st : stack nat (S (S s))) : stack nat (S s) :=
