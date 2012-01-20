@@ -250,27 +250,28 @@ Fixpoint compile (e : expr) : forall {s}, code s (S s) :=
   | biop o l r => fun _ => compile l _ ++ compile r _ ;; ibiop o
   end.
 
-(* We try compiling the expression for the empty stack. *)
+(* We try to compile the expression for the empty stack. *)
 Eval compute in @compile sample_expr 0.
 
 (** ** Semantics
 
-Now we define the operational semantics of the compiled code. 
+Now we define the operational semantics of operators, instructions
+and, finally, code sequences.
 
 In the definition of [exec], I used [refine] instead of [Program],
 just to try it off.*)
 
-(* Operators. *)
+(* Action of an operator. *)
 Definition exec_op (o : op) {s} (st : stack nat (S (S s))) : stack nat (S s) :=
   let (y,st') := pop st in
   let (x,st'') := pop st' in
   spush _ (d_op o x y) st''.
  
-(* Operational semantics of an instruction. *)
+(* Action of an instruction. *)
 Definition exec {s t} (i : instr s t) (bs : binds)
   : freeVars_instr i ⊆ boundVars bs → stack nat s → stack nat t.
 Proof.
-  refine ( (* Program is able to solve the obligation automatically! *)
+  refine ( 
     match i as i' in instr m n
       return freeVars_instr i' ⊆ boundVars bs → stack nat m → stack nat n
     with
@@ -279,10 +280,11 @@ Proof.
     | ibiop _ o => fun  _ => exec_op o
     end
   ).
+  (* Program is able to solve the obligation automatically! *)
   exact (pf v (or_introl False (eq_refl v))).
 Defined.
 
-(* Operational semantics of a code sequence. *)
+(* Action of a code sequence. *)
 Fixpoint run {s t} (c : code s t) (bs : binds)
   : freeVars_code c ⊆ boundVars bs → stack nat s → stack nat t.
 Proof.
@@ -298,11 +300,15 @@ Proof.
   intros v H; exact (pf v (set_union_intro1 string_dec v (freeVars_code c0) (freeVars_instr i) H)).
 Defined.
 
-(* Some utilities. *)
+(** This concludes the definitional section of the development.
+Both denotational and operational semantics have been
+defined and what's left is to prove that they are equivalent. *)
+
+(* Some utilities that belong to the definitional-operational part. *)
 Definition empty_stack {A} := snil A.
 Definition singleton {A : Set} (x : A) := spush A x empty_stack.
 
-(* === Proofs === *)
+(** * Proofs *)
 
 Lemma cappend_cnil : forall {s t} (p : code s t), cappend cnil p = p.
   intros s t; induction p;
