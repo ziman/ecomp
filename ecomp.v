@@ -282,14 +282,14 @@ Proof.
   induction e; try reflexivity.
     simpl; intros. rewrite (
       proof_irrelevance _
-        (pf_c s (set_union_intro2 string_dec s nil (s :: nil) (or_introl False eq_refl)))
-        (denotation_obligation_1 (var s) bs pf_e s eq_refl)
+        (pf_c s (set_union_intro2 string_dec s nil (s :: nil) (or_introl False (eq_refl s))))
+        (denotation_obligation_1 (var s) bs pf_e s (eq_refl (var s)))
       ); reflexivity.
   intros; simpl.
     set (P1 := fun  (v : string) (H : v ∈ freeVars_code (cappend (compile e1) (compile e2))) =>
       pf_c v (set_union_intro1 string_dec v (freeVars_code (cappend (compile e1) (compile e2))) nil H)).
-    set (P2 := denotation_obligation_2 (biop o e1 e2) bs pf_e o e1 e2 eq_refl).
-    set (P3 := denotation_obligation_3 (biop o e1 e2) bs pf_e o e1 e2 eq_refl).
+    set (P2 := denotation_obligation_2 (biop o e1 e2) bs pf_e o e1 e2 (eq_refl (biop o e1 e2))).
+    set (P3 := denotation_obligation_3 (biop o e1 e2) bs pf_e o e1 e2 (eq_refl (biop o e1 e2))).
     rewrite (run_cappend (compile e1) (compile e2) st bs P1 (compiled_fv P2) (compiled_fv P3)).
     rewrite (IHe1 s st bs P2 (compiled_fv P2)).
     rewrite (IHe2 (S s) (spush nat (denotation e1 bs P2) st) bs P3 (compiled_fv P3)).
