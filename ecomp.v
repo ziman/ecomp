@@ -219,7 +219,7 @@ Inductive code : nat → nat → Set :=
   | cnil : forall {s}, code s s
   | csnoc : forall {s t u}, code s t → instr t u → code s u.
 
-Notation "a ; b" := (csnoc a  b) (at level 29, left associativity).
+Notation "a ;; b" := (csnoc a  b) (at level 29, left associativity).
 
 Fixpoint freeVars_code {s t} (c : code s t) : list string :=
   match c with
@@ -232,7 +232,7 @@ Definition cappend {s t u : nat} (p : code s t) (q : code t u) : code s u :=
   let cappend' := fix cappend' {s t u : nat} (q : code t u) : code s t → code s u :=
     match q in code m n return code s m → code s n with
     | cnil _ => fun p => p
-    | csnoc _ _ _ c i => fun  p => cappend' _ _ _ c p ; i
+    | csnoc _ _ _ c i => fun  p => cappend' _ _ _ c p ;; i
     end
   in cappend' _ _ _ q p.
 
@@ -243,17 +243,24 @@ which is completely straightforward.
 
 The function [compile] returns [∀ s. code s (S s)] so that
 the code is not specialized for a specific stack size. *)
-Fixpoint compile (e : expr) : forall s, code s (S s) :=
+Fixpoint compile (e : expr) : forall {s}, code s (S s) :=
   match e with
-  | num x => fun _ => cnil ; ipush x
-  | var v => fun _ => cnil ; iread v
-  | biop o l r => fun _ => compile l _ ++ compile r _ ; ibiop o
+  | num x => fun _ => cnil ;; ipush x
+  | var v => fun _ => cnil ;; iread v
+  | biop o l r => fun _ => compile l _ ++ compile r _ ;; ibiop o
   end.
 
 (* We try compiling the expression for the empty stack. *)
 Eval compute in @compile sample_expr 0.
 
-(* Operational semantics of a binary operator. *)
+(** ** Semantics
+
+Now we define the operational semantics of the compiled code. 
+
+In the definition of [exec], I used [refine] instead of [Program],
+just to try it off.*)
+
+(* Operators. *)
 Definition exec_op (o : op) {s} (st : stack nat (S (S s))) : stack nat (S s) :=
   let (y,st') := pop st in
   let (x,st'') := pop st' in
@@ -359,8 +366,8 @@ Qed.
 (* A variation of the correctness theorem, operating on any stack. *)
 Lemma correctness_strong
   : forall {e : expr} {s : nat} {st : stack nat s} {bs : binds}
-  (pf_e : freeVars_expr e ⊆ boundVars bs) (pf_c : freeVars_code (compile e) ⊆ boundVars bs),
-  run (compile e) bs pf_c st = spush _ (denotation e bs pf_e) st.
+  (pf_e : freeVars_expr e ⊆ boundVars bs) (pf_c : freeVars_code (compile e _) ⊆ boundVars bs),
+  run (compile e _) bs pf_c st = spush _ (denotation e bs pf_e) st.
 Proof.
   induction e; try reflexivity.
     simpl; intros. rewrite (
@@ -369,11 +376,11 @@ Proof.
         (denotation_obligation_1 (var s) bs pf_e s (eq_refl (var s)))
       ); reflexivity.
   intros; simpl.
-    set (P1 := fun  (v : string) (H : v ∈ freeVars_code (cappend (compile e1) (compile e2))) =>
-      pf_c v (set_union_intro1 string_dec v (freeVars_code (cappend (compile e1) (compile e2))) nil H)).
+    set (P1 := fun  (v : string) (H : v ∈ freeVars_code (cappend (compile e1 _) (compile e2 _))) =>
+      pf_c v (set_union_intro1 string_dec v (freeVars_code (cappend (compile e1 _) (compile e2 _))) nil H)).
     set (P2 := denotation_obligation_2 (biop o e1 e2) bs pf_e o e1 e2 (eq_refl (biop o e1 e2))).
     set (P3 := denotation_obligation_3 (biop o e1 e2) bs pf_e o e1 e2 (eq_refl (biop o e1 e2))).
-    rewrite (run_cappend (compile e1) (compile e2) st bs P1 (compiled_fv P2) (compiled_fv P3)).
+    rewrite (run_cappend (compile e1 _) (compile e2 _) st bs P1 (compiled_fv P2) (compiled_fv P3)).
     rewrite (IHe1 s st bs P2 (compiled_fv P2)).
     rewrite (IHe2 (S s) (spush nat (denotation e1 bs P2) st) bs P3 (compiled_fv P3)).
   reflexivity.
@@ -385,14 +392,14 @@ Qed.
 *)
 Theorem correctness : forall (e : expr) (bs : binds)
   (pf_e : freeVars_expr e ⊆ boundVars bs)
-  (pf_c : freeVars_code (compile e) ⊆ boundVars bs),
-  run (compile e) bs pf_c empty_stack = singleton (denotation e bs pf_e).
+  (pf_c : freeVars_code (compile e _) ⊆ boundVars bs),
+  run (compile e _) bs pf_c empty_stack = singleton (denotation e bs pf_e).
 Proof.
   intros; apply (correctness_strong pf_e pf_c).
 Qed.
 
 (* Example. *)
-Eval compute in run (compile sample_expr) sample_binds (compiled_fv sample_pf) empty_stack.
+Eval compute in run (compile sample_expr _) sample_binds (compiled_fv sample_pf) empty_stack.
 
 
 
