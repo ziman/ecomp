@@ -23,7 +23,7 @@ Definition binds := list (string * nat).
 Notation "x ∪ y" := (set_union string_dec x y) (at level 50, left associativity).
 Notation "x ∈ S" := (set_In x S) (at level 30, no associativity).
 Notation "M ⊆ N" := (forall x, x ∈ M → x ∈ N) (at level 30, no associativity).
-Notation "f ∘ g" := (λ x, f (g x)) (at level 55, left associativity).
+Notation "f ∘ g" := (fun  x => f (g x)) (at level 55, left associativity).
 
 Example sample_binds := ("x"%string, 9) :: ("y"%string, 4) :: nil.
 
@@ -146,7 +146,7 @@ Definition cappend {s t u : nat} (p : code s t) (q : code t u) : code s u :=
   let cappend' := fix cappend' {s t u : nat} (q : code t u) : code s t → code s u :=
     match q in code m n return code s m → code s n with
     | cnil _ => fun p => p
-    | csnoc _ _ _ c i => λ p, csnoc (cappend' _ _ _ c p) i
+    | csnoc _ _ _ c i => fun  p => csnoc (cappend' _ _ _ c p) i
     end
   in cappend' _ _ _ q p.
 
@@ -184,9 +184,9 @@ Proof.
     match i as i' in instr m n
       return freeVars_instr i' ⊆ boundVars bs → stack nat m → stack nat n
     with
-    | ipush _ x => λ _, spush _ x
-    | iread _ v => λ pf, spush _ (slookup v bs _)
-    | ibiop _ o => λ _, exec_op o
+    | ipush _ x => fun  _ => spush _ x
+    | iread _ v => fun  pf => spush _ (slookup v bs _)
+    | ibiop _ o => fun  _ => exec_op o
     end
   ).
   exact (pf v (or_introl False (eq_refl v))).
@@ -200,8 +200,8 @@ Proof.
     match c as c' in code m n
       return freeVars_code c' ⊆ boundVars bs → stack nat m → stack nat n
     with
-    | cnil _ => λ _, id
-    | csnoc _ _ _ c i => λ pf, exec i bs _  ∘ run _ _ c bs _
+    | cnil _ => fun  _ => id
+    | csnoc _ _ _ c i => fun  pf => exec i bs _  ∘ run _ _ c bs _
     end
   ).
   intros v H; exact (pf v (set_union_intro2 string_dec v (freeVars_code c0) (freeVars_instr i) H)).
@@ -254,13 +254,13 @@ Proof.
       rewrite (proof_irrelevance (freeVars_code p ⊆ boundVars bs) pf_o pf_p);
       reflexivity.
     intros; simpl.
-      set (pf_r := λ (v : string) (H : v ∈ freeVars_instr i), pf_o v
+      set (pf_r := fun  (v : string) (H : v ∈ freeVars_instr i) => pf_o v
         (set_union_intro2 string_dec v (freeVars_code (cappend p q)) (freeVars_instr i) H));
-      set (pf_s := λ (v : string) (H : v ∈ freeVars_code (cappend p q)), pf_o v
+      set (pf_s := fun  (v : string) (H : v ∈ freeVars_code (cappend p q)) => pf_o v
         (set_union_intro1 string_dec v (freeVars_code (cappend p q)) (freeVars_instr i) H));
-      set (pf_t := λ (v : string) (H : v ∈ freeVars_instr i), pf_q v
+      set (pf_t := fun  (v : string) (H : v ∈ freeVars_instr i) => pf_q v
         (set_union_intro2 string_dec v (freeVars_code q) (freeVars_instr i) H));
-      set (pf_u := λ (v : string) (H : v ∈ freeVars_code q), pf_q v
+      set (pf_u := fun  (v : string) (H : v ∈ freeVars_code q) => pf_q v
         (set_union_intro1 string_dec v (freeVars_code q) (freeVars_instr i) H)).
       rewrite <- (IHq p st bs pf_s pf_p).
       rewrite (proof_irrelevance (freeVars_instr i ⊆ boundVars bs) pf_r pf_t).
@@ -286,7 +286,7 @@ Proof.
         (denotation_obligation_1 (var s) bs pf_e s eq_refl)
       ); reflexivity.
   intros; simpl.
-    set (P1 := λ (v : string) (H : v ∈ freeVars_code (cappend (compile e1) (compile e2))),
+    set (P1 := fun  (v : string) (H : v ∈ freeVars_code (cappend (compile e1) (compile e2))) =>
       pf_c v (set_union_intro1 string_dec v (freeVars_code (cappend (compile e1) (compile e2))) nil H)).
     set (P2 := denotation_obligation_2 (biop o e1 e2) bs pf_e o e1 e2 eq_refl).
     set (P3 := denotation_obligation_3 (biop o e1 e2) bs pf_e o e1 e2 eq_refl).
