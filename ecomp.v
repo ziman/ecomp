@@ -1,10 +1,10 @@
-(** Matus Tejiscak, Coq & Type Theory 2011
+(** Matus Tejiscak <functor.sk@ziman>, Coq & Type Theory 2011
 
 This is a certified compiler of a simple language with multiplicative and additive
 expressions, and variables. 
 
 I decided to intersperse the required report with the source code for
-better illustrativeness.
+illustrativeness.
 *)
 
 (** * Imports 
@@ -27,14 +27,15 @@ No unary operators; they aren't needed to prove the point, anyway.
 I use string-named variables; this is closer to practicality although then we need
 to remember the context as finite sets of bound names. The other option would probably be
 naming the variables by natural numbers (and the context, being a function
-nat → nat, would be characterized just by the upper limit of its argument). *)
+nat → nat, would be characterized just by the upper limit of its argument),
+but let's just stick with strings. *)
 Inductive expr : Set :=
   | num : nat → expr
   | var : string → expr
   | biop : op → expr → expr → expr.
 
 (** We also want some fancy notation and also a sample expression
-we can try our later functions on. *)
+we can try our functions on. *)
 
 Notation "x .+ y" := (biop add x y) (at level 50, left associativity).
 Notation "x .* y" := (biop mul x y) (at level 40, left associativity).
@@ -42,10 +43,10 @@ Notation "[ x ]" := (num x).
 
 Example sample_expr := [3] .* [4] .+ [5] .* ([9] .+ var "x").
 
-(** * Variable bindings
+(** * Variable bindings/contexts
 
 A set of bindings is represented simply by a list of pairs (name, value).
-The _shape_ of a binding is represented by a _set_ of names bound within,
+The _shape_ of a context is represented by a _set_ of names bound within,
 represented by [list string].
 
 I wanted to keep things as simple as possible and these list representations,
@@ -241,16 +242,20 @@ Notation "a ++ b" := (cappend a b).
 (** Now we have everything ready for defining the compilation function,
 which is completely straightforward. 
 
-The function [compile] returns [∀ s. code s (S s)] so that
-the code is not specialized for a specific stack size. *)
-Fixpoint compile (e : expr) : forall {s}, code s (S s) :=
+The function [compile] returns [∀ s, code s (S s)] so that
+the code is not specialized for a specific stack size.
+
+The type also indicates that the code created by compiling
+of an expression is equivalent to pushing exactly one number
+on the stack. *)
+Fixpoint compile (e : expr) : forall s, code s (S s) :=
   match e with
   | num x => fun _ => cnil ;; ipush x
   | var v => fun _ => cnil ;; iread v
   | biop o l r => fun _ => compile l _ ++ compile r _ ;; ibiop o
   end.
 
-(* We try to compile the expression for the empty stack. *)
+(* We try to compile the expression for the empty stack to see for ourselves. *)
 Eval compute in @compile sample_expr 0.
 
 (** ** Semantics
@@ -258,7 +263,7 @@ Eval compute in @compile sample_expr 0.
 Now we define the operational semantics of operators, instructions
 and, finally, code sequences.
 
-In the definition of [exec], I used [refine] instead of [Program],
+In the definition of [exec] and [run], I use [refine] instead of [Program],
 just to try it off.*)
 
 (* Action of an operator. *)
@@ -308,7 +313,12 @@ defined and what's left is to prove that they are equivalent. *)
 Definition empty_stack {A} := snil A.
 Definition singleton {A : Set} (x : A) := spush A x empty_stack.
 
-(** * Proofs *)
+(** * Proofs 
+
+In this section we prove that our translation into stack-machine code is correct.
+
+Let us begin with some auxiliary results about [cappend].
+*)
 
 Lemma cappend_cnil : forall {s t} (p : code s t), cappend cnil p = p.
   intros s t; induction p;
@@ -330,7 +340,8 @@ Proof.
       intros; right; apply set_union_intro2; assumption.
 Qed.  
 
-(* The function [compile] does not create free variables. *)
+(** We also prove that the function [compile] does not create new free variables
+(other than those that were free also in the source expression). *)
 Lemma compile_fvars : forall {e s}, freeVars_code (@compile e s) ⊆ freeVars_expr e.
   intro e; induction e; try (intros; simpl in H; assumption).
   intros; simpl; simpl in H.
@@ -340,9 +351,12 @@ Lemma compile_fvars : forall {e s}, freeVars_code (@compile e s) ⊆ freeVars_ex
       apply set_union_intro2; exact (IHe2 (S s) x H1).
 Qed.
 
-Lemma run_cappend : forall {s t u} (p : code s t) (q : code t u) (st : stack nat s)
-  (bs : binds) (pf_o : freeVars_code (cappend p q) ⊆ boundVars bs)
-  (pf_p : freeVars_code p ⊆ boundVars bs) (pf_q : freeVars_code q ⊆ boundVars bs)
+(** The following proves that (under a number of assumptions about context coverage),
+running the code [a ++ b] is equivalent to running first [a], and then [b]. *)
+Lemma run_cappend : forall {s t u} (p : code s t) (q : code t u) (st : stack nat s) (bs : binds)
+  (pf_o : freeVars_code (cappend p q) ⊆ boundVars bs)
+  (pf_p : freeVars_code p ⊆ boundVars bs)
+  (pf_q : freeVars_code q ⊆ boundVars bs)
   , run (cappend p q) bs pf_o st = run q bs pf_q (run p bs pf_p st).
 Proof.
   intros s t u p q; revert p; induction q.
@@ -363,14 +377,23 @@ Proof.
       reflexivity.
 Qed.
 
-Lemma compiled_fv : forall {e bs s}, freeVars_expr e ⊆ boundVars bs
+(** Now we are ready to prove the corollary that if it is safe to evaluate an expression
+within a context, then it is safe to run the corresponding compiled code in that context. *)
+Corollary compiled_fv : forall {e bs s}, freeVars_expr e ⊆ boundVars bs
   → freeVars_code (@compile e s) ⊆ boundVars bs.
 Proof.
   intros; apply H; pose proof (compile_fvars x H0); assumption.
 Qed.
 
-(* A variation of the correctness theorem, operating on any stack. *)
-Lemma correctness_strong
+(** What follows is a variation of the correctness theorem, operating on any stack. This is the central
+theorem about the correctness of the compiler and the bulk of the work is done here.
+
+The theorem says that (given appropriate circumstances) running the code of an expression
+on an arbitrary stack is equivalent to pushing the denotation of the expression onto that
+stack. 
+
+A weaker claim also follows from the type of code returned by [compile]. *)
+Theorem correctness_strong
   : forall {e : expr} {s : nat} {st : stack nat s} {bs : binds}
   (pf_e : freeVars_expr e ⊆ boundVars bs) (pf_c : freeVars_code (compile e _) ⊆ boundVars bs),
   run (compile e _) bs pf_c st = spush _ (denotation e bs pf_e) st.
@@ -392,11 +415,14 @@ Proof.
   reflexivity.
 Qed.
 
-(* The main theorem, proving the correctness of the compiler and interpreter. *)
-(* An instance of [pf_c] may be obtained as [compiled_fv pf_e]
-    but for convenience, this theorem accepts any proof of that hypothesis.
+(** ** Correctness
+
+The main theorem, proving the correctness of the compiler and interpreter. 
+
+(An instance of [pf_c] may be obtained as [compiled_fv pf_e]
+but for convenience, this theorem accepts any proof of that hypothesis.)
 *)
-Theorem correctness : forall (e : expr) (bs : binds)
+Corollary correctness : forall (e : expr) (bs : binds)
   (pf_e : freeVars_expr e ⊆ boundVars bs)
   (pf_c : freeVars_code (compile e _) ⊆ boundVars bs),
   run (compile e _) bs pf_c empty_stack = singleton (denotation e bs pf_e).
@@ -404,7 +430,7 @@ Proof.
   intros; apply (correctness_strong pf_e pf_c).
 Qed.
 
-(* Example. *)
+(** For illustration, we run the code for the [sample_expr]ession. *)
 Eval compute in run (compile sample_expr _) sample_binds (compiled_fv sample_pf) empty_stack.
 
 
