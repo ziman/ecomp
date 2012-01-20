@@ -1,15 +1,40 @@
+(** Matus Tejiscak, Coq & Type Theory 2011
+
+This is a certified compiler of a simple language with multiplicative and additive
+expressions, and variables. 
+
+I decided to intersperse the required report with the source code for
+better illustrativeness.
+*)
+
+(** * Imports 
+I like Unicode and we also postulate proof irrelevance. 
+
+I am unsure how bad it is to require proof irrelevance, thus postulating
+an additional axiom — but otherwise proving would be probably much more tedious. *)
 Require Import
   Utf8 List String ListSet ProofIrrelevance.
 
-(* Operators and expressions.  *)
+(** * Operators and expressions
+I figure that addition and multiplication is enough for binary operators. *)
 Inductive op : Set :=
   | add : op
   | mul : op.
 
+(** Then, an expression is either a number, a variable or an (applied) binary operator.
+No unary operators; they aren't needed to prove the point, anyway. 
+
+I use string-named variables; this is closer to practicality although then we need
+to remember the context as finite sets of bound names. The other option would probably be
+naming the variables by natural numbers (and the context, being a function
+nat → nat, would be characterized just by the upper limit of its argument). *)
 Inductive expr : Set :=
   | num : nat → expr
   | var : string → expr
   | biop : op → expr → expr → expr.
+
+(** We also want some fancy notation and also a sample expression
+we can try our later functions on. *)
 
 Notation "x .+ y" := (biop add x y) (at level 50, left associativity).
 Notation "x .* y" := (biop mul x y) (at level 40, left associativity).
@@ -17,17 +42,36 @@ Notation "[ x ]" := (num x).
 
 Example sample_expr := [3] .* [4] .+ [5] .* ([9] .+ var "x").
 
-(* Variable bindings. *)
+(** * Variable bindings
 
+A set of bindings is represented simply by a list of pairs (name, value).
+The _shape_ of a binding is represented by a _set_ of names bound within,
+represented by [list string].
+
+I wanted to keep things as simple as possible and these list representations,
+along with some utilities from the standard library fit quite well.
+
+Definitions of bindings and utility notation (operating on both bindings
+and binding shapes), along with examples, follow.
+ *)
+
+(* Variable bindings. *)
 Definition binds := list (string * nat).
 Notation "x ∪ y" := (set_union string_dec x y) (at level 50, left associativity).
 Notation "x ∈ S" := (set_In x S) (at level 30, no associativity).
 Notation "M ⊆ N" := (forall x, x ∈ M → x ∈ N) (at level 30, no associativity).
 Notation "f ∘ g" := (fun  x => f (g x)) (at level 55, left associativity).
 
+(* An example for later use. *)
 Example sample_binds := ("x"%string, 9) :: ("y"%string, 4) :: nil.
 
+(* Getting the set of bound variables of a context is a simple matter. *)
 Definition boundVars : binds → list string := map (@fst _ _).
+
+(** First, we define an "unsafe" lookup, which returns an [option nat]. However,
+we don't want to carry these values around, together with monadic plumbing.
+Instead, we would like, given appropriate proofs, to produce safe unwrapped
+values directly. *)
 
 Fixpoint lookup (v : string) (bs : binds) : option nat :=
   match bs with
@@ -57,6 +101,12 @@ Lemma lookup_pos_neg : forall v bs, v ∈ boundVars bs → lookup v bs ≠ None.
   intros; destruct (lookup_pos _ _ H) as [n H0]; rewrite H0; discriminate.
 Qed.
 
+(** Given the above lemmas, we can finally define a "safe" [lookup] that returns
+[nat]s directly, without wrapping them in [option]s. 
+
+For this, we use [Program] to avoid proof clutter getting in the way of understanding
+the trivial nature of the computational content. *)
+
 Program Definition slookup (v : string) (bs : binds) (pf : v ∈ boundVars bs) : nat :=
   match lookup v bs with
   | None => _
@@ -66,7 +116,8 @@ Next Obligation.
   destruct (lookup_pos_neg v bs pf (eq_sym Heq_anonymous)).
 Defined.
 
-(* Free variables of expressions. *)
+(** We also need to determine sets of unbound variables of expressions, along
+with some related lemmas. *)
 
 Fixpoint freeVars_expr (e : expr) : list string :=
   match e with
@@ -83,13 +134,16 @@ Lemma expr_subvars_r : forall o l r, freeVars_expr r ⊆ freeVars_expr (biop o l
   intros; simpl; apply set_union_intro2; assumption.
 Qed.
 
-(* Sample expression versus sample binds. *)
+(** Using the provided definitions, now we can prove that the [sample_expr]ession 
+is safely covered by [sample_binds]. We will need this for demonstrations later. *)
 
 Example sample_pf : freeVars_expr sample_expr ⊆ boundVars sample_binds.
   simpl; intros; destruct H; left. assumption. destruct H.
 Qed.
 
-(* Denotational semantics of ops and expressions. *)
+(** * Denotational semantics
+
+Denotation of operators is completely straightforward. *)
 Definition d_op (o : op) : nat → nat → nat :=
   match o with
   | add => plus
@@ -99,6 +153,11 @@ Definition d_op (o : op) : nat → nat → nat :=
 Lemma elim_In : forall v bs, (forall x : string, v = x ∨ False → x ∈ boundVars bs) → v ∈ boundVars bs.
   intros; exact (H v (or_introl _ (eq_refl v))).
 Qed.
+
+(** For denotation of expressions, we also use [Program] to separate computational content
+from proof clutter. Note that this function already accepts an [expr]ession and [binds], along with
+a proof that the expression is covered by the bindings. Under such assumptions, denotation
+of an expression is always a well-defined natural number. *)
 
 Program Fixpoint denotation (e : expr) (bs : binds) (pf : freeVars_expr e ⊆ boundVars bs) {struct e} : nat :=
   match e with
@@ -116,7 +175,12 @@ Next Obligation.
   apply pf; apply (expr_subvars_r o l r x H).
 Qed.
 
-(* Instruction of a stack machine of type [instr s t] transforms
+(** * Operational semantics
+
+In this section, we introduce a stack machine along with instructions it provides
+and we define what code expressions compile to. *)
+
+(** An instruction of a stack machine of type [instr s t] transforms
     a stack of size [s] into a stack of size [t]. *)
 Inductive instr : nat → nat → Set :=
   | ipush : forall {s}, nat → instr s (S s)
